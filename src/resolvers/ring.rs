@@ -1,9 +1,9 @@
 use super::CryptoResolver;
 use crate::{
     constants::TAGLEN,
-    Error,
     params::{CipherChoice, DHChoice, HashChoice},
     types::{Cipher, Dh, Hash, Random},
+    Error,
 };
 use ring::{
     aead::{self, LessSafeKey, UnboundKey},
@@ -115,7 +115,7 @@ impl Cipher for CipherAESGCM {
                 &mut out[..plaintext.len()],
             )
             .unwrap();
-        &mut out[plaintext.len()..plaintext.len() + TAGLEN].copy_from_slice(tag.as_ref());
+        out[plaintext.len()..plaintext.len() + TAGLEN].copy_from_slice(tag.as_ref());
 
         plaintext.len() + TAGLEN
     }
@@ -149,7 +149,7 @@ impl Cipher for CipherAESGCM {
                 .key
                 .open_in_place(nonce, aead::Aad::from(authtext), &mut in_out)
                 .map_err(|_| Error::Decrypt)?;
-            
+
             out[..out0.len()].copy_from_slice(out0);
             Ok(out0.len())
         }
@@ -194,7 +194,7 @@ impl Cipher for CipherChaChaPoly {
                 &mut out[..plaintext.len()],
             )
             .unwrap();
-        &mut out[plaintext.len()..plaintext.len() + TAGLEN].copy_from_slice(tag.as_ref());
+        out[plaintext.len()..plaintext.len() + TAGLEN].copy_from_slice(tag.as_ref());
 
         plaintext.len() + TAGLEN
     }
@@ -228,7 +228,7 @@ impl Cipher for CipherChaChaPoly {
                 .key
                 .open_in_place(nonce, aead::Aad::from(authtext), &mut in_out)
                 .map_err(|_| Error::Decrypt)?;
-            
+
             out[..out0.len()].copy_from_slice(out0);
             Ok(out0.len())
         }
