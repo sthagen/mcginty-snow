@@ -10,7 +10,7 @@ license = "Apache-2.0 OR MIT"
 categories = ["cryptography"]
 readme = "README.md"
 keywords = ["noise", "protocol", "crypto"]
-edition = "2018"
+edition = "2021"
 
 # This is slightly mumbo-jumboey, but in short:
 # Features with a -resolver suffix simply enables the existence of a specific resolver,
@@ -47,11 +47,11 @@ blake2 = { version = "0.10", optional = true }
 sha2 = { version = "0.10", optional = true }
 curve25519-dalek = { version = "4", optional = true }
 
-pqcrypto-kyber = { version = "0.7", optional = true }
+pqcrypto-kyber = { version = "0.8", optional = true }
 pqcrypto-traits = { version = "0.3", optional = true }
 
 # ring crypto provider
-ring = { version = "^0.16.2", optional = true, features = ["std"] }
+ring = { version = "0.17", optional = true, features = ["std"] }
 # libsodium crypto provider
 sodiumoxide = { version = "0.2", optional = true }
 byteorder = { version = "1.4", optional = true }
