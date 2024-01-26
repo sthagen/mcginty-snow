@@ -18,38 +18,39 @@ use std::{
     fmt,
     fs::{File, OpenOptions},
     io::Read,
+    marker::PhantomData,
     ops::Deref,
 };
 
 #[derive(Clone)]
-struct HexBytes {
+struct HexBytes<T> {
     original: String,
-    payload: Vec<u8>,
+    payload:  T,
 }
 
-impl From<Vec<u8>> for HexBytes {
-    fn from(payload: Vec<u8>) -> Self {
+impl<T: AsRef<[u8]>> From<T> for HexBytes<T> {
+    fn from(payload: T) -> Self {
         Self { original: hex::encode(&payload), payload }
     }
 }
 
-impl Deref for HexBytes {
-    type Target = Vec<u8>;
+impl<T> Deref for HexBytes<T> {
+    type Target = T;
 
     fn deref(&self) -> &Self::Target {
         &self.payload
     }
 }
 
-impl fmt::Debug for HexBytes {
+impl<T> fmt::Debug for HexBytes<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.original)
     }
 }
 
-struct HexBytesVisitor;
-impl<'de> Visitor<'de> for HexBytesVisitor {
-    type Value = HexBytes;
+struct HexBytesVisitor<T: AsRef<[u8]>>(PhantomData<T>);
+impl<'de, T: AsRef<[u8]> + FromHex> Visitor<'de> for HexBytesVisitor<T> {
+    type Value = HexBytes<T>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(formatter, "a hex string")
@@ -59,22 +60,22 @@ impl<'de> Visitor<'de> for HexBytesVisitor {
     where
         E: de::Error,
     {
-        let bytes = Vec::<u8>::from_hex(s)
-            .map_err(|_| de::Error::invalid_value(Unexpected::Str(s), &self))?;
+        let bytes =
+            T::from_hex(s).map_err(|_| de::Error::invalid_value(Unexpected::Str(s), &self))?;
         Ok(HexBytes { original: s.to_owned(), payload: bytes })
     }
 }
 
-impl<'de> Deserialize<'de> for HexBytes {
-    fn deserialize<D>(deserializer: D) -> Result<HexBytes, D::Error>
+impl<'de, T: AsRef<[u8]> + FromHex> Deserialize<'de> for HexBytes<T> {
+    fn deserialize<D>(deserializer: D) -> Result<HexBytes<T>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        deserializer.deserialize_str(HexBytesVisitor)
+        deserializer.deserialize_str(HexBytesVisitor(Default::default()))
     }
 }
 
-impl Serialize for HexBytes {
+impl<T: AsRef<[u8]>> Serialize for HexBytes<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -85,8 +86,8 @@ impl Serialize for HexBytes {
 
 #[derive(Serialize, Deserialize)]
 struct TestMessage {
-    payload: HexBytes,
-    ciphertext: HexBytes,
+    payload:    HexBytes<Vec<u8>>,
+    ciphertext: HexBytes<Vec<u8>>,
 }
 
 impl fmt::Debug for TestMessage {
@@ -114,29 +115,29 @@ struct TestVector {
     #[serde(skip_serializing_if = "Option::is_none")]
     fallback_pattern: Option<String>,
 
-    init_prologue: HexBytes,
+    init_prologue: HexBytes<Vec<u8>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    init_psks: Option<Vec<HexBytes>>,
+    init_psks: Option<Vec<HexBytes<[u8; 32]>>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    init_static: Option<HexBytes>,
+    init_static: Option<HexBytes<Vec<u8>>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    init_ephemeral: Option<HexBytes>,
+    init_ephemeral: Option<HexBytes<Vec<u8>>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    init_remote_static: Option<HexBytes>,
+    init_remote_static: Option<HexBytes<Vec<u8>>>,
 
-    resp_prologue: HexBytes,
+    resp_prologue:      HexBytes<Vec<u8>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    resp_psks: Option<Vec<HexBytes>>,
+    resp_psks:          Option<Vec<HexBytes<[u8; 32]>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    resp_static: Option<HexBytes>,
+    resp_static:        Option<HexBytes<Vec<u8>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    resp_ephemeral: Option<HexBytes>,
+    resp_ephemeral:     Option<HexBytes<Vec<u8>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    resp_remote_static: Option<HexBytes>,
+    resp_remote_static: Option<HexBytes<Vec<u8>>>,
 
     messages: Vec<TestMessage>,
 }
@@ -156,8 +157,8 @@ fn build_session_pair(vector: &TestVector) -> Result<(HandshakeState, HandshakeS
         if let (&Some(ref ipsks), &Some(ref rpsks)) = (&vector.init_psks, &vector.resp_psks) {
             for modifier in params.handshake.modifiers.list {
                 if let HandshakeModifier::Psk(n) = modifier {
-                    init_builder = init_builder.psk(n, &*ipsks[psk_index]);
-                    resp_builder = resp_builder.psk(n, &*rpsks[psk_index]);
+                    init_builder = init_builder.psk(n, &*ipsks[psk_index]).unwrap();
+                    resp_builder = resp_builder.psk(n, &*rpsks[psk_index]).unwrap();
                     psk_index += 1;
                 }
             }
@@ -167,16 +168,16 @@ fn build_session_pair(vector: &TestVector) -> Result<(HandshakeState, HandshakeS
     }
 
     if let Some(ref init_s) = vector.init_static {
-        init_builder = init_builder.local_private_key(&*init_s);
+        init_builder = init_builder.local_private_key(&*init_s).unwrap();
     }
     if let Some(ref resp_s) = vector.resp_static {
-        resp_builder = resp_builder.local_private_key(&*resp_s);
+        resp_builder = resp_builder.local_private_key(&*resp_s).unwrap();
     }
     if let Some(ref init_remote_static) = vector.init_remote_static {
-        init_builder = init_builder.remote_public_key(&*init_remote_static);
+        init_builder = init_builder.remote_public_key(&*init_remote_static).unwrap();
     }
     if let Some(ref resp_remote_static) = vector.resp_remote_static {
-        resp_builder = resp_builder.remote_public_key(&*resp_remote_static);
+        resp_builder = resp_builder.remote_public_key(&*resp_remote_static).unwrap();
     }
     if let Some(ref init_e) = vector.init_ephemeral {
         init_builder = init_builder.fixed_ephemeral_key_for_testing_only(&*init_e);
@@ -187,10 +188,12 @@ fn build_session_pair(vector: &TestVector) -> Result<(HandshakeState, HandshakeS
 
     let init = init_builder
         .prologue(&vector.init_prologue)
+        .unwrap()
         .build_initiator()
         .map_err(|e| format!("{:?}", e))?;
     let resp = resp_builder
         .prologue(&vector.resp_prologue)
+        .unwrap()
         .build_responder()
         .map_err(|e| format!("{:?}", e))?;
 
@@ -305,6 +308,13 @@ fn test_vectors_from_json(json: &str) {
     }
 }
 
+fn random_slice<const N: usize>() -> [u8; N] {
+    let mut v = [0u8; N];
+    let mut rng = rand::thread_rng();
+    rng.fill_bytes(&mut v);
+    v
+}
+
 fn random_vec(size: usize) -> Vec<u8> {
     let mut v = vec![0u8; size];
     let mut rng = rand::thread_rng();
@@ -338,35 +348,35 @@ fn generate_vector(params: NoiseParams) -> TestVector {
     re = resp_b.generate_keypair().unwrap();
 
     for _ in 0..get_psks_count(&params) {
-        let v = random_vec(32);
-        psks_hex.push(v.clone().into());
+        let v = random_slice::<32>();
+        psks_hex.push(v.into());
         psks.push(v);
     }
 
     let mut psk_index = 0;
     for modifier in params.handshake.modifiers.list {
         if let HandshakeModifier::Psk(n) = modifier {
-            init_b = init_b.psk(n, &psks[psk_index]);
-            resp_b = resp_b.psk(n, &psks[psk_index]);
+            init_b = init_b.psk(n, &psks[psk_index]).unwrap();
+            resp_b = resp_b.psk(n, &psks[psk_index]).unwrap();
             psk_index += 1;
         }
     }
     init_b = init_b.fixed_ephemeral_key_for_testing_only(&ie.private);
-    init_b = init_b.prologue(&prologue);
+    init_b = init_b.prologue(&prologue).unwrap();
     if params.handshake.pattern.needs_local_static_key(true) {
-        init_b = init_b.local_private_key(&is.private);
+        init_b = init_b.local_private_key(&is.private).unwrap();
     }
     if params.handshake.pattern.need_known_remote_pubkey(true) {
-        init_b = init_b.remote_public_key(&rs.public);
+        init_b = init_b.remote_public_key(&rs.public).unwrap();
     }
 
     resp_b = resp_b.fixed_ephemeral_key_for_testing_only(&re.private);
-    resp_b = resp_b.prologue(&prologue);
+    resp_b = resp_b.prologue(&prologue).unwrap();
     if params.handshake.pattern.needs_local_static_key(false) {
-        resp_b = resp_b.local_private_key(&rs.private);
+        resp_b = resp_b.local_private_key(&rs.private).unwrap();
     }
     if params.handshake.pattern.need_known_remote_pubkey(false) {
-        resp_b = resp_b.remote_public_key(&is.public);
+        resp_b = resp_b.remote_public_key(&is.public).unwrap();
     }
 
     let mut init = init_b.build_initiator().unwrap();
@@ -378,7 +388,7 @@ fn generate_vector(params: NoiseParams) -> TestVector {
         let payload = random_vec(32);
         let len = init.write_message(&payload, &mut ibuf).unwrap();
         messages.push(TestMessage {
-            payload: payload.clone().into(),
+            payload:    payload.clone().into(),
             ciphertext: ibuf[..len].to_vec().into(),
         });
         let _ = resp.read_message(&ibuf[..len], &mut obuf).unwrap();
@@ -390,7 +400,7 @@ fn generate_vector(params: NoiseParams) -> TestVector {
         let payload = random_vec(32);
         let len = resp.write_message(&payload, &mut ibuf).unwrap();
         messages.push(TestMessage {
-            payload: payload.clone().into(),
+            payload:    payload.clone().into(),
             ciphertext: ibuf[..len].to_vec().into(),
         });
         let _ = init.read_message(&ibuf[..len], &mut obuf).unwrap();

@@ -16,7 +16,7 @@ use std::{
     net::{TcpListener, TcpStream},
 };
 
-static SECRET: &[u8] = b"i don't care for fidget spinners";
+static SECRET: &[u8; 32] = b"i don't care for fidget spinners";
 lazy_static! {
     static ref PARAMS: NoiseParams = "Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s".parse().unwrap();
 }
@@ -24,7 +24,7 @@ lazy_static! {
 #[cfg(any(feature = "default-resolver", feature = "ring-accelerated"))]
 fn main() {
     let server_mode =
-        std::env::args().next_back().map(|arg| arg == "-s" || arg == "--server").unwrap_or(true);
+        std::env::args().next_back().map_or(true, |arg| arg == "-s" || arg == "--server");
 
     if server_mode {
         run_server();
@@ -41,8 +41,13 @@ fn run_server() {
     // Initialize our responder using a builder.
     let builder = Builder::new(PARAMS.clone());
     let static_key = builder.generate_keypair().unwrap().private;
-    let mut noise =
-        builder.local_private_key(&static_key).psk(3, SECRET).build_responder().unwrap();
+    let mut noise = builder
+        .local_private_key(&static_key)
+        .unwrap()
+        .psk(3, SECRET)
+        .unwrap()
+        .build_responder()
+        .unwrap();
 
     // Wait on our client's arrival...
     println!("listening on 127.0.0.1:9999");
@@ -75,8 +80,13 @@ fn run_client() {
     // Initialize our initiator using a builder.
     let builder = Builder::new(PARAMS.clone());
     let static_key = builder.generate_keypair().unwrap().private;
-    let mut noise =
-        builder.local_private_key(&static_key).psk(3, SECRET).build_initiator().unwrap();
+    let mut noise = builder
+        .local_private_key(&static_key)
+        .unwrap()
+        .psk(3, SECRET)
+        .unwrap()
+        .build_initiator()
+        .unwrap();
 
     // Connect to our server, which is hopefully listening.
     let mut stream = TcpStream::connect("127.0.0.1:9999").unwrap();

@@ -1,9 +1,12 @@
-extern crate sodiumoxide;
+//! # NOTE
+//! This backend is deprecated, as sodiumoxide is unmaintained. This will be removed in a
+//! following version of snow.
 
 use byteorder::{ByteOrder, LittleEndian};
 
 use super::CryptoResolver;
 use crate::{
+    constants::CIPHERKEYLEN,
     params::{CipherChoice, DHChoice, HashChoice},
     types::{Cipher, Dh, Hash, Random},
     Error,
@@ -16,6 +19,7 @@ use sodiumoxide::crypto::{
 
 /// A resolver that uses [libsodium](https://github.com/jedisct1/libsodium)
 /// via [sodiumoxide](https://crates.io/crates/sodiumoxide).
+#[allow(clippy::module_name_repetitions)]
 #[derive(Default)]
 pub struct SodiumResolver;
 
@@ -142,7 +146,7 @@ impl Cipher for SodiumChaChaPoly {
         "ChaChaPoly"
     }
 
-    fn set(&mut self, key: &[u8]) {
+    fn set(&mut self, key: &[u8; CIPHERKEYLEN]) {
         self.key = sodium_chacha20poly1305::Key::from_slice(&key[0..32])
             .expect("Can't get key for ChaChaPoly");
     }

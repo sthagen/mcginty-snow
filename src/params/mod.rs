@@ -1,3 +1,6 @@
+#![allow(clippy::match_on_vec_items)]
+#![allow(clippy::enum_glob_use)]
+
 //! All structures related to Noise parameter definitions (cryptographic primitive choices, protocol
 //! patterns/names)
 
@@ -146,6 +149,7 @@ impl FromStr for KemChoice {
 /// let params: NoiseParams = "Noise_XX_25519_AESGCM_SHA256".parse().unwrap();
 /// ```
 #[derive(PartialEq, Clone, Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct NoiseParams {
     /// The full pattern string.
     pub name:      String,
@@ -166,7 +170,8 @@ pub struct NoiseParams {
 
 impl NoiseParams {
     #[cfg(not(feature = "hfs"))]
-    /// Construct a new NoiseParams via specifying enums directly.
+    /// Construct a new `NoiseParams` via specifying enums directly.
+    #[must_use]
     pub fn new(
         name: String,
         base: BaseChoice,
@@ -199,14 +204,18 @@ impl FromStr for NoiseParams {
     #[cfg(not(feature = "hfs"))]
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut split = s.split('_');
-        Ok(NoiseParams::new(
+        let params = NoiseParams::new(
             s.to_owned(),
             split.next().ok_or(PatternProblem::TooFewParameters)?.parse()?,
             split.next().ok_or(PatternProblem::TooFewParameters)?.parse()?,
             split.next().ok_or(PatternProblem::TooFewParameters)?.parse()?,
             split.next().ok_or(PatternProblem::TooFewParameters)?.parse()?,
             split.next().ok_or(PatternProblem::TooFewParameters)?.parse()?,
-        ))
+        );
+        if split.next().is_some() {
+            return Err(PatternProblem::TooManyParameters.into());
+        }
+        Ok(params)
     }
 
     #[cfg(feature = "hfs")]
@@ -233,6 +242,9 @@ impl FromStr for NoiseParams {
             split.next().ok_or(PatternProblem::TooFewParameters)?.parse()?,
             split.next().ok_or(PatternProblem::TooFewParameters)?.parse()?,
         );
+        if split.next().is_some() {
+            return Err(PatternProblem::TooManyParameters.into());
+        }
 
         // Validate that a KEM is specified iff the hfs modifier is present
         if p.handshake.is_hfs() != p.kem.is_some() {
@@ -293,8 +305,21 @@ mod tests {
         let mods = p.handshake.modifiers.list;
         match (mods[0], mods[1], mods[2]) {
             (Psk(0), Psk(1), Psk(2)) => {},
-            _ => panic!("modifiers weren't as expected! actual: {:?}", mods),
+            _ => panic!("modifiers weren't as expected! actual: {mods:?}"),
         }
+    }
+
+    #[test]
+    fn test_duplicate_psk_mod() {
+        assert!("Noise_XXfallback+psk1_25519_AESGCM_SHA256".parse::<NoiseParams>().is_ok());
+        assert_eq!(
+            Error::Pattern(PatternProblem::DuplicateModifier),
+            "Noise_XXfallback+fallback_25519_AESGCM_SHA256".parse::<NoiseParams>().unwrap_err()
+        );
+        assert_eq!(
+            Error::Pattern(PatternProblem::DuplicateModifier),
+            "Noise_XXpsk1+psk1_25519_AESGCM_SHA256".parse::<NoiseParams>().unwrap_err()
+        );
     }
 
     #[test]
@@ -323,5 +348,23 @@ mod tests {
             Token::Psk(_) => {},
             _ => panic!("missing token!"),
         }
+    }
+
+    #[test]
+    fn test_invalid_psk_handshake() {
+        let p: NoiseParams = "Noise_XXpsk9_25519_AESGCM_SHA256".parse().unwrap();
+
+        assert_eq!(
+            Error::Pattern(PatternProblem::InvalidPsk),
+            HandshakeTokens::try_from(&p.handshake).unwrap_err()
+        );
+    }
+
+    #[test]
+    fn test_extraneous_string_data() {
+        assert_eq!(
+            Error::Pattern(PatternProblem::TooManyParameters),
+            "Noise_XXpsk0_25519_AESGCM_SHA256_HackThePlanet".parse::<NoiseParams>().unwrap_err()
+        );
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     cipherstate::StatelessCipherStates,
-    constants::{MAXDHLEN, MAXMSGLEN, TAGLEN},
+    constants::{CIPHERKEYLEN, MAXDHLEN, MAXMSGLEN, TAGLEN},
     error::{Error, StateProblem},
     handshakestate::HandshakeState,
     params::HandshakePattern,
@@ -40,6 +40,7 @@ impl StatelessTransportState {
     /// doesn't necessitate a remote static key, *or* if the remote
     /// static key is not yet known (as can be the case in the `XX`
     /// pattern, for example).
+    #[must_use]
     pub fn get_remote_static(&self) -> Option<&[u8]> {
         self.rs.get().map(|rs| &rs[..self.dh_len])
     }
@@ -74,6 +75,7 @@ impl StatelessTransportState {
     /// Returns the number of bytes written to `payload`.
     ///
     /// # Errors
+    /// Will result in `Error::Input` if the message is more than 65535 bytes.
     ///
     /// Will result in `Error::Decrypt` if the contents couldn't be decrypted and/or the
     /// authentication tag didn't verify.
@@ -85,11 +87,14 @@ impl StatelessTransportState {
         payload: &[u8],
         message: &mut [u8],
     ) -> Result<usize, Error> {
-        if self.initiator && self.pattern.is_oneway() {
-            return Err(StateProblem::OneWay.into());
+        if payload.len() > MAXMSGLEN {
+            Err(Error::Input)
+        } else if self.initiator && self.pattern.is_oneway() {
+            Err(StateProblem::OneWay.into())
+        } else {
+            let cipher = if self.initiator { &self.cipherstates.1 } else { &self.cipherstates.0 };
+            cipher.decrypt(nonce, payload, message)
         }
-        let cipher = if self.initiator { &self.cipherstates.1 } else { &self.cipherstates.0 };
-        cipher.decrypt(nonce, payload, message)
     }
 
     /// Generate a new key for the egress symmetric cipher according to Section 4.2
@@ -98,9 +103,9 @@ impl StatelessTransportState {
     /// of the Noise Specification.
     pub fn rekey_outgoing(&mut self) {
         if self.initiator {
-            self.cipherstates.rekey_initiator()
+            self.cipherstates.rekey_initiator();
         } else {
-            self.cipherstates.rekey_responder()
+            self.cipherstates.rekey_responder();
         }
     }
 
@@ -110,14 +115,18 @@ impl StatelessTransportState {
     /// of the Noise Specification.
     pub fn rekey_incoming(&mut self) {
         if self.initiator {
-            self.cipherstates.rekey_responder()
+            self.cipherstates.rekey_responder();
         } else {
-            self.cipherstates.rekey_initiator()
+            self.cipherstates.rekey_initiator();
         }
     }
 
     /// Set a new key for the one or both of the initiator-egress and responder-egress symmetric ciphers.
-    pub fn rekey_manually(&mut self, initiator: Option<&[u8]>, responder: Option<&[u8]>) {
+    pub fn rekey_manually(
+        &mut self,
+        initiator: Option<&[u8; CIPHERKEYLEN]>,
+        responder: Option<&[u8; CIPHERKEYLEN]>,
+    ) {
         if let Some(key) = initiator {
             self.rekey_initiator_manually(key);
         }
@@ -127,16 +136,17 @@ impl StatelessTransportState {
     }
 
     /// Set a new key for the initiator-egress symmetric cipher.
-    pub fn rekey_initiator_manually(&mut self, key: &[u8]) {
-        self.cipherstates.rekey_initiator_manually(key)
+    pub fn rekey_initiator_manually(&mut self, key: &[u8; CIPHERKEYLEN]) {
+        self.cipherstates.rekey_initiator_manually(key);
     }
 
     /// Set a new key for the responder-egress symmetric cipher.
-    pub fn rekey_responder_manually(&mut self, key: &[u8]) {
-        self.cipherstates.rekey_responder_manually(key)
+    pub fn rekey_responder_manually(&mut self, key: &[u8; CIPHERKEYLEN]) {
+        self.cipherstates.rekey_responder_manually(key);
     }
 
     /// Check if this session was started with the "initiator" role.
+    #[must_use]
     pub fn is_initiator(&self) -> bool {
         self.initiator
     }

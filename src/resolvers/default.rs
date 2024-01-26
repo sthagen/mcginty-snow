@@ -16,7 +16,7 @@ use crate::params::KemChoice;
 #[cfg(feature = "pqclean_kyber1024")]
 use crate::types::Kem;
 use crate::{
-    constants::TAGLEN,
+    constants::{CIPHERKEYLEN, TAGLEN},
     params::{CipherChoice, DHChoice, HashChoice},
     types::{Cipher, Dh, Hash, Random},
     Error,
@@ -25,6 +25,7 @@ use crate::{
 /// The default resolver provided by snow. This resolver is designed to
 /// support as many of the Noise spec primitives as possible with
 /// pure-Rust (or nearly pure-Rust) implementations.
+#[allow(clippy::module_name_repetitions)]
 #[derive(Default)]
 pub struct DefaultResolver;
 
@@ -36,7 +37,7 @@ impl CryptoResolver for DefaultResolver {
     fn resolve_dh(&self, choice: &DHChoice) -> Option<Box<dyn Dh>> {
         match *choice {
             DHChoice::Curve25519 => Some(Box::<Dh25519>::default()),
-            _ => None,
+            DHChoice::Curve448 => None,
         }
     }
 
@@ -76,20 +77,20 @@ struct Dh25519 {
 /// Wraps `aes-gcm`'s AES256-GCM implementation.
 #[derive(Default)]
 struct CipherAesGcm {
-    key: [u8; 32],
+    key: [u8; CIPHERKEYLEN],
 }
 
-/// Wraps `chacha20_poly1305_aead`'s ChaCha20Poly1305 implementation.
+/// Wraps `chacha20_poly1305_aead`'s `ChaCha20Poly1305` implementation.
 #[derive(Default)]
 struct CipherChaChaPoly {
-    key: [u8; 32],
+    key: [u8; CIPHERKEYLEN],
 }
 
 /// Wraps `chachapoly1305`'s XChaCha20Poly1305 implementation.
 #[cfg(feature = "xchachapoly")]
 #[derive(Default)]
 struct CipherXChaChaPoly {
-    key: [u8; 32],
+    key: [u8; CIPHERKEYLEN],
 }
 
 /// Wraps `RustCrypto`'s SHA-256 implementation.
@@ -144,14 +145,14 @@ impl Dh for Dh25519 {
     }
 
     fn set(&mut self, privkey: &[u8]) {
-        let mut bytes = [0u8; 32];
+        let mut bytes = [0u8; CIPHERKEYLEN];
         copy_slices!(privkey, bytes);
         self.privkey = bytes;
         self.derive_pubkey();
     }
 
     fn generate(&mut self, rng: &mut dyn Random) {
-        let mut bytes = [0u8; 32];
+        let mut bytes = [0u8; CIPHERKEYLEN];
         rng.fill_bytes(&mut bytes);
         self.privkey = bytes;
         self.derive_pubkey();
@@ -166,7 +167,7 @@ impl Dh for Dh25519 {
     }
 
     fn dh(&self, pubkey: &[u8], out: &mut [u8]) -> Result<(), Error> {
-        let mut pubkey_owned = [0u8; 32];
+        let mut pubkey_owned = [0u8; CIPHERKEYLEN];
         copy_slices!(&pubkey[..32], pubkey_owned);
         let result = MontgomeryPoint(pubkey_owned).mul_clamped(self.privkey).to_bytes();
         copy_slices!(result, out);
@@ -179,8 +180,8 @@ impl Cipher for CipherAesGcm {
         "AESGCM"
     }
 
-    fn set(&mut self, key: &[u8]) {
-        copy_slices!(key, &mut self.key)
+    fn set(&mut self, key: &[u8; CIPHERKEYLEN]) {
+        copy_slices!(key, &mut self.key);
     }
 
     fn encrypt(&self, nonce: u64, authtext: &[u8], plaintext: &[u8], out: &mut [u8]) -> usize {
@@ -222,7 +223,7 @@ impl Cipher for CipherAesGcm {
             &mut out[..message_len],
             ciphertext[message_len..].into(),
         )
-        .map(|_| message_len)
+        .map(|()| message_len)
         .map_err(|_| Error::Decrypt)
     }
 }
@@ -232,7 +233,7 @@ impl Cipher for CipherChaChaPoly {
         "ChaChaPoly"
     }
 
-    fn set(&mut self, key: &[u8]) {
+    fn set(&mut self, key: &[u8; CIPHERKEYLEN]) {
         copy_slices!(key, &mut self.key);
     }
 
@@ -284,7 +285,7 @@ impl Cipher for CipherXChaChaPoly {
         "XChaChaPoly"
     }
 
-    fn set(&mut self, key: &[u8]) {
+    fn set(&mut self, key: &[u8; CIPHERKEYLEN]) {
         copy_slices!(key, &mut self.key);
     }
 
@@ -359,7 +360,7 @@ impl Hash for HashSHA256 {
 
     fn result(&mut self, out: &mut [u8]) {
         let hash = self.hasher.finalize_reset();
-        copy_slices!(hash.as_slice(), out)
+        copy_slices!(hash.as_slice(), out);
     }
 }
 
@@ -392,7 +393,7 @@ impl Hash for HashSHA512 {
 
     fn result(&mut self, out: &mut [u8]) {
         let hash = self.hasher.finalize_reset();
-        copy_slices!(hash.as_slice(), out)
+        copy_slices!(hash.as_slice(), out);
     }
 }
 
@@ -527,7 +528,7 @@ mod tests {
     #[test]
     fn test_sha256() {
         let mut output = [0u8; 32];
-        let mut hasher: HashSHA256 = Default::default();
+        let mut hasher = HashSHA256::default();
         hasher.input(b"abc");
         hasher.result(&mut output);
         assert!(
@@ -544,7 +545,7 @@ mod tests {
         )
         .unwrap();
         let mut output1 = [0u8; 32];
-        let mut hasher: HashSHA256 = Default::default();
+        let mut hasher = HashSHA256::default();
         hasher.hmac(&key, &data, &mut output1);
         assert!(
             hex::encode(output1)
@@ -552,7 +553,7 @@ mod tests {
         );
 
         let mut output2 = [0u8; 64];
-        let mut hasher: HashSHA512 = Default::default();
+        let mut hasher = HashSHA512::default();
         hasher.hmac(&key, &data, &mut output2);
         assert!(
             hex::encode(output2)
@@ -567,7 +568,7 @@ mod tests {
     fn test_blake2b() {
         // BLAKE2b test - draft-saarinen-blake2-06
         let mut output = [0u8; 64];
-        let mut hasher: HashBLAKE2b = Default::default();
+        let mut hasher = HashBLAKE2b::default();
         hasher.input(b"abc");
         hasher.result(&mut output);
         assert!(
@@ -583,7 +584,7 @@ mod tests {
     fn test_blake2s() {
         // BLAKE2s test - draft-saarinen-blake2-06
         let mut output = [0u8; 32];
-        let mut hasher: HashBLAKE2s = Default::default();
+        let mut hasher = HashBLAKE2s::default();
         hasher.input(b"abc");
         hasher.result(&mut output);
         assert!(
@@ -596,7 +597,7 @@ mod tests {
     #[test]
     fn test_curve25519() {
         // Curve25519 test - draft-curves-10
-        let mut keypair: Dh25519 = Default::default();
+        let mut keypair = Dh25519::default();
         let scalar =
             Vec::<u8>::from_hex("a546e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449ac4")
                 .unwrap();
@@ -621,13 +622,13 @@ mod tests {
         let plaintext = [0u8; 0];
         let authtext = [0u8; 0];
         let mut ciphertext = [0u8; 16];
-        let mut cipher1: CipherAesGcm = Default::default();
+        let mut cipher1 = CipherAesGcm::default();
         cipher1.set(&key);
         cipher1.encrypt(nonce, &authtext, &plaintext, &mut ciphertext);
         assert!(hex::encode(ciphertext) == "530f8afbc74536b9a963b4f1c4cb738b");
 
         let mut resulttext = [0u8; 1];
-        let mut cipher2: CipherAesGcm = Default::default();
+        let mut cipher2 = CipherAesGcm::default();
         cipher2.set(&key);
         cipher2.decrypt(nonce, &authtext, &ciphertext, &mut resulttext).unwrap();
         assert!(resulttext[0] == 0);
@@ -637,7 +638,7 @@ mod tests {
         // Test Case 14
         let plaintext2 = [0u8; 16];
         let mut ciphertext2 = [0u8; 32];
-        let mut cipher3: CipherAesGcm = Default::default();
+        let mut cipher3 = CipherAesGcm::default();
         cipher3.set(&key);
         cipher3.encrypt(nonce, &authtext, &plaintext2, &mut ciphertext2);
         assert!(
@@ -646,7 +647,7 @@ mod tests {
         );
 
         let mut resulttext2 = [1u8; 16];
-        let mut cipher4: CipherAesGcm = Default::default();
+        let mut cipher4 = CipherAesGcm::default();
         cipher4.set(&key);
         cipher4.decrypt(nonce, &authtext, &ciphertext2, &mut resulttext2).unwrap();
         assert!(plaintext2 == resulttext2);
@@ -662,12 +663,12 @@ mod tests {
         let plaintext = [0u8; 0];
         let authtext = [0u8; 0];
         let mut ciphertext = [0u8; 16];
-        let mut cipher1: CipherChaChaPoly = Default::default();
+        let mut cipher1 = CipherChaChaPoly::default();
         cipher1.set(&key);
         cipher1.encrypt(nonce, &authtext, &plaintext, &mut ciphertext);
 
         let mut resulttext = [0u8; 1];
-        let mut cipher2: CipherChaChaPoly = Default::default();
+        let mut cipher2 = CipherChaChaPoly::default();
         cipher2.set(&key);
         cipher2.decrypt(nonce, &authtext, &ciphertext, &mut resulttext).unwrap();
         assert!(resulttext[0] == 0);
@@ -683,12 +684,12 @@ mod tests {
         let plaintext = [0x34u8; 117];
         let authtext = [0u8; 0];
         let mut ciphertext = [0u8; 133];
-        let mut cipher1: CipherChaChaPoly = Default::default();
+        let mut cipher1 = CipherChaChaPoly::default();
         cipher1.set(&key);
         cipher1.encrypt(nonce, &authtext, &plaintext, &mut ciphertext);
 
         let mut resulttext = [0u8; 117];
-        let mut cipher2: CipherChaChaPoly = Default::default();
+        let mut cipher2 = CipherChaChaPoly::default();
         cipher2.set(&key);
         cipher2.decrypt(nonce, &authtext, &ciphertext, &mut resulttext).unwrap();
         assert!(hex::encode(resulttext) == hex::encode(plaintext));
@@ -703,12 +704,12 @@ mod tests {
         let plaintext = [0x34u8; 117];
         let authtext = [0u8; 0];
         let mut ciphertext = [0u8; 133];
-        let mut cipher1: CipherXChaChaPoly = Default::default();
+        let mut cipher1 = CipherXChaChaPoly::default();
         cipher1.set(&key);
         cipher1.encrypt(nonce, &authtext, &plaintext, &mut ciphertext);
 
         let mut resulttext = [0u8; 117];
-        let mut cipher2: CipherXChaChaPoly = Default::default();
+        let mut cipher2 = CipherXChaChaPoly::default();
         cipher2.set(&key);
         cipher2.decrypt(nonce, &authtext, &ciphertext, &mut resulttext).unwrap();
         assert!(hex::encode(resulttext.to_vec()) == hex::encode(plaintext.to_vec()));
@@ -717,12 +718,12 @@ mod tests {
     #[test]
     fn test_chachapoly_known_answer() {
         //ChaChaPoly known-answer test - RFC 7539
-        let key = Vec::<u8>::from_hex(
+        let key = <[u8; 32]>::from_hex(
             "1c9240a5eb55d38af333888604f6b5f0\
                   473917c1402b80099dca5cbc207075c0",
         )
         .unwrap();
-        let nonce = 0x0807060504030201u64;
+        let nonce = 0x0807_0605_0403_0201_u64;
         let ciphertext = Vec::<u8>::from_hex(
             "64a0861575861af460f062c79be643bd\
                          5e805cfd345cf389f108670ac76c8cb2\
@@ -750,7 +751,7 @@ mod tests {
         copy_slices!(&ciphertext, &mut combined_text);
         copy_slices!(&tag[0..TAGLEN], &mut combined_text[ciphertext.len()..]);
 
-        let mut cipher: CipherChaChaPoly = Default::default();
+        let mut cipher = CipherChaChaPoly::default();
         cipher.set(&key);
         cipher
             .decrypt(

@@ -15,7 +15,7 @@ use std::fmt;
 ///
 /// `snow` may eventually add a feature flag and enum variant to only return
 /// an "unspecified" error for those who would prefer safety over observability.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Error {
     /// The noise pattern failed to parse.
@@ -46,10 +46,12 @@ pub enum Error {
 
 /// The various stages of initialization used to help identify
 /// the specific cause of an `Init` error.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum PatternProblem {
     /// Caused by a pattern string that is too short and malformed (e.g. `Noise_NN_25519`).
     TooFewParameters,
+    /// Caused by a pattern string that is too long (e.g. `Noise_NN_25519_SHA256_SomeOtherThing`).
+    TooManyParameters,
     /// The handshake section of the string (e.g. `XXpsk3`) isn't supported. Check for typos
     /// and necessary feature flags.
     UnsupportedHandshakeType,
@@ -66,6 +68,8 @@ pub enum PatternProblem {
     UnsupportedCipherType,
     /// The PSK position must be a number, and a pretty small one at that.
     InvalidPsk,
+    /// Duplicate modifiers must not be used in the same pattern.
+    DuplicateModifier,
     /// Invalid modifier (e.g. `fallback`).
     /// Check that there are no typos and that any feature flags you might need are toggled
     UnsupportedModifier,
@@ -83,7 +87,7 @@ impl From<PatternProblem> for Error {
 
 /// The various stages of initialization used to help identify
 /// the specific cause of an `Init` error.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum InitStage {
     /// Provided and received key lengths were not equal.
     ValidateKeyLengths,
@@ -102,9 +106,11 @@ pub enum InitStage {
     #[cfg(feature = "hfs")]
     /// The KEM implementation couldn't be initialized.
     GetKemImpl,
-    /// The PSK position (specified in the pattern string) isn't valid for the given
-    /// handshake type.
+    /// The PSK position (specified in the pattern string) isn't valid for the given handshake type.
     ValidatePskPosition,
+    /// The Builder already has set a value for this parameter, and overwrites are not allowed as
+    /// they can introduce subtle security issues.
+    ParameterOverwrite,
 }
 
 impl From<InitStage> for Error {
@@ -114,7 +120,7 @@ impl From<InitStage> for Error {
 }
 
 /// A prerequisite that may be missing.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Prerequisite {
     /// A local private key wasn't provided when it was needed by the selected pattern.
     LocalPrivateKey,
@@ -129,7 +135,7 @@ impl From<Prerequisite> for Error {
 }
 
 /// Specific errors in the state machine.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum StateProblem {
     /// Missing key material in the internal handshake state.
     MissingKeyMaterial,
@@ -158,14 +164,14 @@ impl From<StateProblem> for Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Pattern(reason) => write!(f, "pattern error: {:?}", reason),
+            Error::Pattern(reason) => write!(f, "pattern error: {reason:?}"),
             Error::Init(reason) => {
-                write!(f, "initialization error: {:?}", reason)
+                write!(f, "initialization error: {reason:?}")
             },
             Error::Prereq(reason) => {
-                write!(f, "prerequisite error: {:?}", reason)
+                write!(f, "prerequisite error: {reason:?}")
             },
-            Error::State(reason) => write!(f, "state error: {:?}", reason),
+            Error::State(reason) => write!(f, "state error: {reason:?}"),
             Error::Input => write!(f, "input error"),
             Error::Dh => write!(f, "diffie-hellman error"),
             Error::Decrypt => write!(f, "decrypt error"),
