@@ -70,6 +70,7 @@ crypto implementations when available.
 |     CSPRNG |    ✔    |  ✔   |
 |      25519 |    ✔    |  ✔   |
 |        448 |         |      |
+|      P-256 |    ✔    |      |
 |     AESGCM |    ✔    |  ✔   |
 | ChaChaPoly |    ✔    |  ✔   |
 |     SHA256 |    ✔    |  ✔   |
@@ -79,12 +80,12 @@ crypto implementations when available.
 
 ## License
 
-Licensed under either of:
+`snow` is offered with a dual choice-of-license between:
 
 - [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0)
 - [MIT license](https://opensource.org/license/mit/)
 
-at your option.
+where you may choose either of these licenses to follow for this work.
 
 ### Contribution
 
