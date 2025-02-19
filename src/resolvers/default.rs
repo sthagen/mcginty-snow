@@ -1,28 +1,51 @@
-use blake2::{Blake2b, Blake2b512, Blake2s, Blake2s256};
-#[cfg(feature = "xchachapoly")]
-use chacha20poly1305::XChaCha20Poly1305;
-use chacha20poly1305::{aead::AeadInPlace, ChaCha20Poly1305, KeyInit};
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+
+// DH
+#[cfg(feature = "use-curve25519")]
 use curve25519_dalek::montgomery::MontgomeryPoint;
+
+// Hashes
+#[cfg(feature = "use-blake2")]
+use blake2::{Blake2b, Blake2b512, Blake2s, Blake2s256, Digest as BlakeDigest};
+#[cfg(feature = "use-sha2")]
+#[allow(unused)]
+// `blake2` and `sha2` both try to export `digest::Digest`.
+// We will import those with different aliases to prevent name clashes.
+use sha2::{Digest as ShaDigest, Sha256, Sha512};
+
+// Ciphers
+#[cfg(feature = "use-chacha20poly1305")]
+use chacha20poly1305::ChaCha20Poly1305;
+#[cfg(feature = "use-xchacha20poly1305")]
+use chacha20poly1305::XChaCha20Poly1305;
+
+#[cfg(any(feature = "use-chacha20poly1305", feature = "use-xchacha20poly1305"))]
+use chacha20poly1305::{aead::AeadInPlace, KeyInit};
+
+#[cfg(feature = "use-aes-gcm")]
+use aes_gcm::Aes256Gcm;
+
+// PQ
+#[cfg(feature = "use-pqcrypto-kyber1024")]
+use crate::params::KemChoice;
+#[cfg(feature = "use-pqcrypto-kyber1024")]
+use crate::types::Kem;
 #[cfg(feature = "p256")]
 use p256::{self, elliptic_curve::sec1::ToEncodedPoint, EncodedPoint};
-#[cfg(feature = "pqclean_kyber1024")]
+#[cfg(feature = "use-pqcrypto-kyber1024")]
 use pqcrypto_kyber::kyber1024;
-#[cfg(feature = "pqclean_kyber1024")]
+#[cfg(feature = "use-pqcrypto-kyber1024")]
 use pqcrypto_traits::kem::{Ciphertext, PublicKey, SecretKey, SharedSecret};
-use rand_core::OsRng;
-use sha2::{Digest, Sha256, Sha512};
 
 use super::CryptoResolver;
-#[cfg(feature = "pqclean_kyber1024")]
-use crate::params::KemChoice;
-#[cfg(feature = "pqclean_kyber1024")]
-use crate::types::Kem;
 use crate::{
     constants::{CIPHERKEYLEN, TAGLEN},
     params::{CipherChoice, DHChoice, HashChoice},
     types::{Cipher, Dh, Hash, Random},
     Error,
 };
+use rand_core::OsRng;
 
 /// The default resolver provided by snow. This resolver is designed to
 /// support as many of the Noise spec primitives as possible with
@@ -38,6 +61,7 @@ impl CryptoResolver for DefaultResolver {
 
     fn resolve_dh(&self, choice: &DHChoice) -> Option<Box<dyn Dh>> {
         match *choice {
+            #[cfg(feature = "use-curve25519")]
             DHChoice::Curve25519 => Some(Box::<Dh25519>::default()),
             DHChoice::Curve448 => None,
             #[cfg(feature = "p256")]
@@ -45,25 +69,35 @@ impl CryptoResolver for DefaultResolver {
         }
     }
 
+    #[allow(unreachable_patterns)]
     fn resolve_hash(&self, choice: &HashChoice) -> Option<Box<dyn Hash>> {
         match *choice {
+            #[cfg(feature = "use-sha2")]
             HashChoice::SHA256 => Some(Box::<HashSHA256>::default()),
+            #[cfg(feature = "use-sha2")]
             HashChoice::SHA512 => Some(Box::<HashSHA512>::default()),
+            #[cfg(feature = "use-blake2")]
             HashChoice::Blake2s => Some(Box::<HashBLAKE2s>::default()),
+            #[cfg(feature = "use-blake2")]
             HashChoice::Blake2b => Some(Box::<HashBLAKE2b>::default()),
+            _ => None,
         }
     }
 
+    #[allow(unreachable_patterns)]
     fn resolve_cipher(&self, choice: &CipherChoice) -> Option<Box<dyn Cipher>> {
         match *choice {
+            #[cfg(feature = "use-chacha20poly1305")]
             CipherChoice::ChaChaPoly => Some(Box::<CipherChaChaPoly>::default()),
-            #[cfg(feature = "xchachapoly")]
+            #[cfg(feature = "use-xchacha20poly1305")]
             CipherChoice::XChaChaPoly => Some(Box::new(CipherXChaChaPoly::default())),
+            #[cfg(feature = "use-aes-gcm")]
             CipherChoice::AESGCM => Some(Box::<CipherAesGcm>::default()),
+            _ => None,
         }
     }
 
-    #[cfg(feature = "pqclean_kyber1024")]
+    #[cfg(feature = "use-pqcrypto-kyber1024")]
     fn resolve_kem(&self, choice: &KemChoice) -> Option<Box<dyn Kem>> {
         match *choice {
             KemChoice::Kyber1024 => Some(Box::new(Kyber1024::default())),
@@ -72,10 +106,11 @@ impl CryptoResolver for DefaultResolver {
 }
 
 /// Wraps x25519-dalek.
+#[cfg(feature = "use-curve25519")]
 #[derive(Default)]
 struct Dh25519 {
     privkey: [u8; 32],
-    pubkey:  [u8; 32],
+    pubkey: [u8; 32],
 }
 
 /// Wraps p256
@@ -83,59 +118,68 @@ struct Dh25519 {
 #[derive(Default)]
 struct P256 {
     privkey: [u8; 32],
-    pubkey:  EncodedPoint,
+    pubkey: EncodedPoint,
 }
 
 /// Wraps `aes-gcm`'s AES256-GCM implementation.
+#[cfg(feature = "use-aes-gcm")]
 #[derive(Default)]
 struct CipherAesGcm {
     key: [u8; CIPHERKEYLEN],
 }
 
 /// Wraps `chacha20_poly1305_aead`'s `ChaCha20Poly1305` implementation.
+#[cfg(feature = "use-chacha20poly1305")]
 #[derive(Default)]
 struct CipherChaChaPoly {
     key: [u8; CIPHERKEYLEN],
 }
 
 /// Wraps `chachapoly1305`'s XChaCha20Poly1305 implementation.
-#[cfg(feature = "xchachapoly")]
+#[cfg(feature = "use-xchacha20poly1305")]
 #[derive(Default)]
 struct CipherXChaChaPoly {
     key: [u8; CIPHERKEYLEN],
 }
 
 /// Wraps `RustCrypto`'s SHA-256 implementation.
+#[cfg(feature = "use-sha2")]
+#[derive(Default)]
 struct HashSHA256 {
     hasher: Sha256,
 }
 
 /// Wraps `RustCrypto`'s SHA-512 implementation.
+#[cfg(feature = "use-sha2")]
+#[derive(Default)]
 struct HashSHA512 {
     hasher: Sha512,
 }
 
 /// Wraps `blake2-rfc`'s implementation.
+#[cfg(feature = "use-blake2")]
 #[derive(Default)]
 struct HashBLAKE2b {
     hasher: Blake2b512,
 }
 
 /// Wraps `blake2-rfc`'s implementation.
+#[cfg(feature = "use-blake2")]
 #[derive(Default)]
 struct HashBLAKE2s {
     hasher: Blake2s256,
 }
 
 /// Wraps `kyber1024`'s implementation
-#[cfg(feature = "pqclean_kyber1024")]
+#[cfg(feature = "use-pqcrypto-kyber1024")]
 struct Kyber1024 {
     privkey: kyber1024::SecretKey,
-    pubkey:  kyber1024::PublicKey,
+    pubkey: kyber1024::PublicKey,
 }
 
 impl Random for OsRng {}
 
+#[cfg(feature = "use-curve25519")]
 impl Dh25519 {
     fn derive_pubkey(&mut self) {
         let point = MontgomeryPoint::mul_base_clamped(self.privkey);
@@ -143,6 +187,7 @@ impl Dh25519 {
     }
 }
 
+#[cfg(feature = "use-curve25519")]
 impl Dh for Dh25519 {
     fn name(&self) -> &'static str {
         "25519"
@@ -248,6 +293,7 @@ impl Dh for P256 {
     }
 }
 
+#[cfg(feature = "use-aes-gcm")]
 impl Cipher for CipherAesGcm {
     fn name(&self) -> &'static str {
         "AESGCM"
@@ -258,7 +304,7 @@ impl Cipher for CipherAesGcm {
     }
 
     fn encrypt(&self, nonce: u64, authtext: &[u8], plaintext: &[u8], out: &mut [u8]) -> usize {
-        let aead = aes_gcm::Aes256Gcm::new(&self.key.into());
+        let aead = Aes256Gcm::new(&self.key.into());
 
         let mut nonce_bytes = [0u8; 12];
         copy_slices!(nonce.to_be_bytes(), &mut nonce_bytes[4..]);
@@ -301,6 +347,7 @@ impl Cipher for CipherAesGcm {
     }
 }
 
+#[cfg(feature = "use-chacha20poly1305")]
 impl Cipher for CipherChaChaPoly {
     fn name(&self) -> &'static str {
         "ChaChaPoly"
@@ -352,7 +399,7 @@ impl Cipher for CipherChaChaPoly {
     }
 }
 
-#[cfg(feature = "xchachapoly")]
+#[cfg(feature = "use-xchacha20poly1305")]
 impl Cipher for CipherXChaChaPoly {
     fn name(&self) -> &'static str {
         "XChaChaPoly"
@@ -404,12 +451,7 @@ impl Cipher for CipherXChaChaPoly {
     }
 }
 
-impl Default for HashSHA256 {
-    fn default() -> HashSHA256 {
-        HashSHA256 { hasher: Sha256::new() }
-    }
-}
-
+#[cfg(feature = "use-sha2")]
 impl Hash for HashSHA256 {
     fn block_len(&self) -> usize {
         64
@@ -424,7 +466,7 @@ impl Hash for HashSHA256 {
     }
 
     fn reset(&mut self) {
-        self.hasher = Sha256::new();
+        self.hasher = Sha256::default();
     }
 
     fn input(&mut self, data: &[u8]) {
@@ -437,12 +479,7 @@ impl Hash for HashSHA256 {
     }
 }
 
-impl Default for HashSHA512 {
-    fn default() -> HashSHA512 {
-        HashSHA512 { hasher: Sha512::new() }
-    }
-}
-
+#[cfg(feature = "use-sha2")]
 impl Hash for HashSHA512 {
     fn name(&self) -> &'static str {
         "SHA512"
@@ -457,7 +494,7 @@ impl Hash for HashSHA512 {
     }
 
     fn reset(&mut self) {
-        self.hasher = Sha512::new();
+        self.hasher = Sha512::default();
     }
 
     fn input(&mut self, data: &[u8]) {
@@ -470,6 +507,7 @@ impl Hash for HashSHA512 {
     }
 }
 
+#[cfg(feature = "use-blake2")]
 impl Hash for HashBLAKE2b {
     fn name(&self) -> &'static str {
         "BLAKE2b"
@@ -497,6 +535,7 @@ impl Hash for HashBLAKE2b {
     }
 }
 
+#[cfg(feature = "use-blake2")]
 impl Hash for HashBLAKE2s {
     fn name(&self) -> &'static str {
         "BLAKE2s"
@@ -524,17 +563,17 @@ impl Hash for HashBLAKE2s {
     }
 }
 
-#[cfg(feature = "pqclean_kyber1024")]
+#[cfg(feature = "use-pqcrypto-kyber1024")]
 impl Default for Kyber1024 {
     fn default() -> Self {
         Kyber1024 {
-            pubkey:  kyber1024::PublicKey::from_bytes(&[0; kyber1024::public_key_bytes()]).unwrap(),
+            pubkey: kyber1024::PublicKey::from_bytes(&[0; kyber1024::public_key_bytes()]).unwrap(),
             privkey: kyber1024::SecretKey::from_bytes(&[0; kyber1024::secret_key_bytes()]).unwrap(),
         }
     }
 }
 
-#[cfg(feature = "pqclean_kyber1024")]
+#[cfg(feature = "use-pqcrypto-kyber1024")]
 impl Kem for Kyber1024 {
     fn name(&self) -> &'static str {
         "Kyber1024"
@@ -594,11 +633,16 @@ impl Kem for Kyber1024 {
 }
 
 #[cfg(test)]
+#[allow(unused)]
 mod tests {
     use super::*;
     use hex::FromHex;
 
+    #[cfg(not(feature = "std"))]
+    use alloc::vec::Vec;
+
     #[test]
+    #[cfg(feature = "use-sha2")]
     fn test_sha256() {
         let mut output = [0u8; 32];
         let mut hasher = HashSHA256::default();
@@ -611,6 +655,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "use-sha2")]
     fn test_hmac_sha256_sha512() {
         let key = Vec::<u8>::from_hex("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
         let data = Vec::<u8>::from_hex(
@@ -638,6 +683,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "use-blake2")]
     fn test_blake2b() {
         // BLAKE2b test - draft-saarinen-blake2-06
         let mut output = [0u8; 64];
@@ -654,6 +700,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "use-blake2")]
     fn test_blake2s() {
         // BLAKE2s test - draft-saarinen-blake2-06
         let mut output = [0u8; 32];
@@ -668,6 +715,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "use-curve25519")]
     fn test_curve25519() {
         // Curve25519 test - draft-curves-10
         let mut keypair = Dh25519::default();
@@ -711,6 +759,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "use-aes-gcm")]
     fn test_aesgcm() {
         // AES256-GCM tests - gcm-spec.pdf
         // Test Case 13
@@ -753,6 +802,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "use-chacha20poly1305")]
     fn test_chachapoly_empty() {
         //ChaChaPoly round-trip test, empty plaintext
         let key = [0u8; 32];
@@ -774,6 +824,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "use-chacha20poly1305")]
     fn test_chachapoly_nonempty() {
         //ChaChaPoly round-trip test, non-empty plaintext
         let key = [0u8; 32];
@@ -792,8 +843,8 @@ mod tests {
         assert!(hex::encode(resulttext) == hex::encode(plaintext));
     }
 
-    #[cfg(feature = "xchachapoly")]
     #[test]
+    #[cfg(feature = "use-xchacha20poly1305")]
     fn test_xchachapoly_nonempty() {
         //XChaChaPoly round-trip test, non-empty plaintext
         let key = [0u8; 32];
@@ -813,6 +864,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "use-chacha20poly1305")]
     fn test_chachapoly_known_answer() {
         //ChaChaPoly known-answer test - RFC 7539
         let key = <[u8; 32]>::from_hex(
@@ -879,7 +931,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "pqclean_kyber1024")]
+    #[cfg(feature = "use-pqcrypto-kyber1024")]
     fn test_kyber1024() {
         let mut rng = OsRng::default();
         let mut kem_1 = Kyber1024::default();
@@ -902,7 +954,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "pqclean_kyber1024")]
+    #[cfg(feature = "use-pqcrypto-kyber1024")]
     fn test_kyber1024_fail() {
         let mut rng = OsRng::default();
         let mut kem_1 = Kyber1024::default();

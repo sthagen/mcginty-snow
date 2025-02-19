@@ -13,7 +13,7 @@
 //! ```
 //! # use snow::Error;
 //! #
-//! # #[cfg(any(feature = "default-resolver", feature = "ring-accelerated"))]
+//! # #[cfg(any(feature = "default-resolver-crypto", feature = "ring-accelerated"))]
 //! # fn try_main() -> Result<(), Error> {
 //! static PATTERN: &'static str = "Noise_NN_25519_ChaChaPoly_BLAKE2s";
 //!
@@ -43,7 +43,7 @@
 //! #     Ok(())
 //! # }
 //! #
-//! # #[cfg(not(any(feature = "default-resolver", feature = "ring-accelerated")))]
+//! # #[cfg(not(any(feature = "default-resolver-crypto", feature = "ring-accelerated")))]
 //! # fn try_main() -> Result<(), ()> { Ok(()) }
 //! #
 //! # fn main() {
@@ -52,8 +52,93 @@
 //! ```
 //!
 //! See `examples/simple.rs` for a more complete TCP client/server example with static keys.
+//! # Crypto
+//!
+//! Cryptographic providers are swappable through `Builder::with_resolver()`, but by default
+//! it chooses select, artisanal pure-Rust implementations (see `Cargo.toml` for a quick
+//! overview).
+//!
+//! ### Other Providers
+//!
+//! #### ring
+//!
+//! [ring](https://github.com/briansmith/ring) is a crypto library based off of BoringSSL
+//! and is significantly faster than most of the pure-Rust implementations.
+//!
+//! If you enable the `ring-resolver` feature, Snow will include a `resolvers::ring` module
+//! as well as a `RingAcceleratedResolver` available to be used with
+//! `Builder::with_resolver()`.
+//!
+//! If you enable the `ring-accelerated` feature, Snow will default to choosing `ring`'s
+//! crypto implementations when available.
+//!
+//! ### Resolver primitives supported
+//!
+//! |                          | default          | ring               |
+//! | -----------------------: | :--------------: | :----------------: |
+//! |     CSPRNG               | ✔️               | ✔️                 |
+//! |      25519               | ✔️               | ✔️                 |
+//! |        448               |                  |                    |
+//! |      P-256<sup>🏁</sup>  | ✔️               |                    |
+//! |     AESGCM               | ✔️               | ✔️                 |
+//! | ChaChaPoly               | ✔️               | ✔️                 |
+//! | XChaChaPoly<sup>🏁</sup> | ✔️               |                    |
+//! |     SHA256               | ✔️               | ✔️                 |
+//! |     SHA512               | ✔️               | ✔️                 |
+//! |    BLAKE2s               | ✔️               |                    |
+//! |    BLAKE2b               | ✔️               |                    |
+//!
+//! 🏁 P-256 and XChaChaPoly are not in the official specification of Noise, and thus need to be enabled
+//! via the feature flags `use-p256` and `use-xchacha20poly1305`, respectively.
+//!
+//! ## `no_std` support and feature selection
+//!
+//! Snow can be used in `no_std` environments if `alloc` is provided.
+//!
+//! By default, Snow uses the standard library, default crypto resolver and a selected collection
+//! of crypto primitives. To use Snow in `no_std` environments or make other kinds of customized
+//! setups, use Snow with `default-features = false`. This way you will individually select
+//! the components you wish to use. `default-resolver` is the only built-in resolver that
+//! currently supports `no_std`.
+//!
+//! To use a custom setup with `default-resolver`, enable your desired selection of cryptographic primitives:
+//!
+//! |             | Primitive                  | Feature flag           |
+//! | ----------: | :------------------------- | :--------------------- |
+//! | **DHs**     | Curve25519                 | `use-curve25519`       |
+//! |             | P-256<sup>:🏁:</sup>       | `use-p256`             |
+//! | **Ciphers** | AES-GCM                    | `use-aes-gcm`          |
+//! |             | ChaChaPoly                 | `use-chacha20poly1305` |
+//! |             | XChaChaPoly<sup>:🏁:</sup> | `use-xchacha20poly1305`|
+//! | **Hashes**  | SHA-256                    | `use-sha2`             |
+//! |             | SHA-512                    | `use-sha2`             |
+//! |             | BLAKE2s                    | `use-blake2`           |
+//! |             | BLAKE2b                    | `use-blake2`           |
+//!
+//! 🏁 XChaChaPoly and P-256 are not in the official specification of Noise, but they are supported
+//! by Snow.
 
 #![warn(missing_docs)]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+// Make sure the user is running a supported configuration.
+#[cfg(feature = "default-resolver")]
+#[cfg(any(
+    not(any(feature = "use-curve25519")),
+    not(any(
+        feature = "use-aes-gcm",
+        feature = "use-chacha20poly1305",
+        feature = "use-xchacha20poly1305"
+    )),
+    not(any(feature = "use-sha2", feature = "use-blake2"))
+))]
+compile_error!(
+    "Valid selection of crypto primitived must be enabled when using feature 'default-resolver'.
+    Enable at least one DH feature, one Cipher feature and one Hash feature. Check README.md for details."
+);
 
 macro_rules! copy_slices {
     ($inslice:expr, $outslice:expr) => {
