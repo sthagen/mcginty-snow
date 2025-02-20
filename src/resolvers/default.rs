@@ -202,14 +202,14 @@ impl Dh for Dh25519 {
     }
 
     fn set(&mut self, privkey: &[u8]) {
-        let mut bytes = [0u8; CIPHERKEYLEN];
+        let mut bytes = [0_u8; CIPHERKEYLEN];
         copy_slices!(privkey, bytes);
         self.privkey = bytes;
         self.derive_pubkey();
     }
 
     fn generate(&mut self, rng: &mut dyn Random) {
-        let mut bytes = [0u8; CIPHERKEYLEN];
+        let mut bytes = [0_u8; CIPHERKEYLEN];
         rng.fill_bytes(&mut bytes);
         self.privkey = bytes;
         self.derive_pubkey();
@@ -224,7 +224,8 @@ impl Dh for Dh25519 {
     }
 
     fn dh(&self, pubkey: &[u8], out: &mut [u8]) -> Result<(), Error> {
-        let mut pubkey_owned = [0u8; CIPHERKEYLEN];
+        let mut pubkey_owned = [0_u8; CIPHERKEYLEN];
+        assert!(pubkey.len() >= 32, "invalid public key length passed into dh function");
         copy_slices!(&pubkey[..32], pubkey_owned);
         let result = MontgomeryPoint(pubkey_owned).mul_clamped(self.privkey).to_bytes();
         copy_slices!(result, out);
@@ -261,14 +262,14 @@ impl Dh for P256 {
     }
 
     fn set(&mut self, privkey: &[u8]) {
-        let mut bytes = [0u8; 32];
+        let mut bytes = [0_u8; 32];
         copy_slices!(privkey, bytes);
         self.privkey = bytes;
         self.derive_pubkey();
     }
 
     fn generate(&mut self, rng: &mut dyn Random) {
-        let mut bytes = [0u8; 32];
+        let mut bytes = [0_u8; 32];
         rng.fill_bytes(&mut bytes);
         self.privkey = bytes;
         self.derive_pubkey();
@@ -285,9 +286,9 @@ impl Dh for P256 {
     fn dh(&self, pubkey: &[u8], out: &mut [u8]) -> Result<(), Error> {
         let secret_key = p256::SecretKey::from_bytes(&self.privkey.into()).or(Err(Error::Dh))?;
         let secret_key_scalar = secret_key.to_nonzero_scalar();
-        let pub_key: p256::elliptic_curve::PublicKey<p256::NistP256> =
-            p256::PublicKey::from_sec1_bytes(&pubkey).or(Err(Error::Dh))?;
-        let dh_output = p256::ecdh::diffie_hellman(secret_key_scalar, pub_key.as_affine());
+        let public_key: p256::elliptic_curve::PublicKey<p256::NistP256> =
+            p256::PublicKey::from_sec1_bytes(pubkey).or(Err(Error::Dh))?;
+        let dh_output = p256::ecdh::diffie_hellman(secret_key_scalar, public_key.as_affine());
         copy_slices!(dh_output.raw_secret_bytes(), out);
         Ok(())
     }
@@ -306,7 +307,7 @@ impl Cipher for CipherAesGcm {
     fn encrypt(&self, nonce: u64, authtext: &[u8], plaintext: &[u8], out: &mut [u8]) -> usize {
         let aead = Aes256Gcm::new(&self.key.into());
 
-        let mut nonce_bytes = [0u8; 12];
+        let mut nonce_bytes = [0_u8; 12];
         copy_slices!(nonce.to_be_bytes(), &mut nonce_bytes[4..]);
 
         copy_slices!(plaintext, out);
@@ -329,7 +330,7 @@ impl Cipher for CipherAesGcm {
     ) -> Result<usize, Error> {
         let aead = aes_gcm::Aes256Gcm::new(&self.key.into());
 
-        let mut nonce_bytes = [0u8; 12];
+        let mut nonce_bytes = [0_u8; 12];
         copy_slices!(nonce.to_be_bytes(), &mut nonce_bytes[4..]);
 
         let message_len = ciphertext.len() - TAGLEN;
@@ -358,7 +359,7 @@ impl Cipher for CipherChaChaPoly {
     }
 
     fn encrypt(&self, nonce: u64, authtext: &[u8], plaintext: &[u8], out: &mut [u8]) -> usize {
-        let mut nonce_bytes = [0u8; 12];
+        let mut nonce_bytes = [0_u8; 12];
         copy_slices!(nonce.to_le_bytes(), &mut nonce_bytes[4..]);
 
         copy_slices!(plaintext, out);
@@ -379,7 +380,7 @@ impl Cipher for CipherChaChaPoly {
         ciphertext: &[u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
-        let mut nonce_bytes = [0u8; 12];
+        let mut nonce_bytes = [0_u8; 12];
         copy_slices!(nonce.to_le_bytes(), &mut nonce_bytes[4..]);
 
         let message_len = ciphertext.len() - TAGLEN;
@@ -410,7 +411,7 @@ impl Cipher for CipherXChaChaPoly {
     }
 
     fn encrypt(&self, nonce: u64, authtext: &[u8], plaintext: &[u8], out: &mut [u8]) -> usize {
-        let mut nonce_bytes = [0u8; 24];
+        let mut nonce_bytes = [0_u8; 24];
         copy_slices!(&nonce.to_le_bytes(), &mut nonce_bytes[16..]);
 
         copy_slices!(plaintext, out);
@@ -431,7 +432,7 @@ impl Cipher for CipherXChaChaPoly {
         ciphertext: &[u8],
         out: &mut [u8],
     ) -> Result<usize, Error> {
-        let mut nonce_bytes = [0u8; 24];
+        let mut nonce_bytes = [0_u8; 24];
         copy_slices!(&nonce.to_le_bytes(), &mut nonce_bytes[16..]);
 
         let message_len = ciphertext.len() - TAGLEN;
@@ -579,22 +580,18 @@ impl Kem for Kyber1024 {
         "Kyber1024"
     }
 
-    /// The length in bytes of a public key for this primitive.
     fn pub_len(&self) -> usize {
         kyber1024::public_key_bytes()
     }
 
-    /// The length in bytes the Kem cipherthext for this primitive.
     fn ciphertext_len(&self) -> usize {
         kyber1024::ciphertext_bytes()
     }
 
-    /// Shared secret length in bytes that this Kem encapsulates.
     fn shared_secret_len(&self) -> usize {
         kyber1024::shared_secret_bytes()
     }
 
-    /// Generate a new private key.
     fn generate(&mut self, _rng: &mut dyn Random) {
         // PQClean uses their own random generator
         let (pk, sk) = kyber1024::keypair();
@@ -602,31 +599,27 @@ impl Kem for Kyber1024 {
         self.privkey = sk;
     }
 
-    /// Get the public key.
     fn pubkey(&self) -> &[u8] {
         self.pubkey.as_bytes()
     }
 
-    /// Generate a shared secret and encapsulate it using this Kem.
-    #[must_use]
     fn encapsulate(
         &self,
         pubkey: &[u8],
         shared_secret_out: &mut [u8],
         ciphertext_out: &mut [u8],
-    ) -> Result<(usize, usize), ()> {
-        let pubkey = kyber1024::PublicKey::from_bytes(pubkey).map_err(|_| ())?;
-        let (shared_secret, ciphertext) = kyber1024::encapsulate(&pubkey);
+    ) -> Result<(usize, usize), Error> {
+        let public_key = kyber1024::PublicKey::from_bytes(pubkey).map_err(|_| Error::Kem)?;
+        let (shared_secret, ciphertext) = kyber1024::encapsulate(&public_key);
         shared_secret_out.copy_from_slice(shared_secret.as_bytes());
         ciphertext_out.copy_from_slice(ciphertext.as_bytes());
         Ok((shared_secret.as_bytes().len(), ciphertext.as_bytes().len()))
     }
 
-    /// Decapsulate a ciphertext producing a shared secret.
-    #[must_use]
-    fn decapsulate(&self, ciphertext: &[u8], shared_secret_out: &mut [u8]) -> Result<usize, ()> {
-        let ciphertext = kyber1024::Ciphertext::from_bytes(ciphertext).map_err(|_| ())?;
-        let shared_secret = kyber1024::decapsulate(&ciphertext, &self.privkey);
+    fn decapsulate(&self, ciphertext: &[u8], shared_secret_out: &mut [u8]) -> Result<usize, Error> {
+        let kyber_ciphertext =
+            kyber1024::Ciphertext::from_bytes(ciphertext).map_err(|_| Error::Kem)?;
+        let shared_secret = kyber1024::decapsulate(&kyber_ciphertext, &self.privkey);
         shared_secret_out.copy_from_slice(shared_secret.as_bytes());
         Ok(shared_secret.as_bytes().len())
     }
@@ -644,7 +637,7 @@ mod tests {
     #[test]
     #[cfg(feature = "use-sha2")]
     fn test_sha256() {
-        let mut output = [0u8; 32];
+        let mut output = [0_u8; 32];
         let mut hasher = HashSHA256::default();
         hasher.input(b"abc");
         hasher.result(&mut output);
@@ -662,7 +655,7 @@ mod tests {
             "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
         )
         .unwrap();
-        let mut output1 = [0u8; 32];
+        let mut output1 = [0_u8; 32];
         let mut hasher = HashSHA256::default();
         hasher.hmac(&key, &data, &mut output1);
         assert!(
@@ -670,7 +663,7 @@ mod tests {
                 == "773ea91e36800e46854db8ebd09181a72959098b3ef8c122d9635514ced565fe"
         );
 
-        let mut output2 = [0u8; 64];
+        let mut output2 = [0_u8; 64];
         let mut hasher = HashSHA512::default();
         hasher.hmac(&key, &data, &mut output2);
         assert!(
@@ -686,7 +679,7 @@ mod tests {
     #[cfg(feature = "use-blake2")]
     fn test_blake2b() {
         // BLAKE2b test - draft-saarinen-blake2-06
-        let mut output = [0u8; 64];
+        let mut output = [0_u8; 64];
         let mut hasher = HashBLAKE2b::default();
         hasher.input(b"abc");
         hasher.result(&mut output);
@@ -703,7 +696,7 @@ mod tests {
     #[cfg(feature = "use-blake2")]
     fn test_blake2s() {
         // BLAKE2s test - draft-saarinen-blake2-06
-        let mut output = [0u8; 32];
+        let mut output = [0_u8; 32];
         let mut hasher = HashBLAKE2s::default();
         hasher.input(b"abc");
         hasher.result(&mut output);
@@ -726,7 +719,7 @@ mod tests {
         let public =
             Vec::<u8>::from_hex("e6db6867583030db3594c1a424b15f7c726624ec26b3353b10a903a6d0ab1c4c")
                 .unwrap();
-        let mut output = [0u8; 32];
+        let mut output = [0_u8; 32];
         keypair.dh(&public, &mut output).unwrap();
         assert_eq!(
             hex::encode(output),
@@ -750,7 +743,7 @@ mod tests {
                 56FBF3CA366CC23E8157854C13C58D6AAC23F046ADA30F8353E74F33039872AB",
         )
         .unwrap();
-        let mut output = [0u8; 32];
+        let mut output = [0_u8; 32];
         keypair.dh(&public, &mut output).unwrap();
         assert_eq!(
             hex::encode(output),
@@ -763,17 +756,17 @@ mod tests {
     fn test_aesgcm() {
         // AES256-GCM tests - gcm-spec.pdf
         // Test Case 13
-        let key = [0u8; 32];
-        let nonce = 0u64;
-        let plaintext = [0u8; 0];
-        let authtext = [0u8; 0];
-        let mut ciphertext = [0u8; 16];
+        let key = [0_u8; 32];
+        let nonce = 0_u64;
+        let plaintext = [0_u8; 0];
+        let authtext = [0_u8; 0];
+        let mut ciphertext = [0_u8; 16];
         let mut cipher1 = CipherAesGcm::default();
         cipher1.set(&key);
         cipher1.encrypt(nonce, &authtext, &plaintext, &mut ciphertext);
         assert!(hex::encode(ciphertext) == "530f8afbc74536b9a963b4f1c4cb738b");
 
-        let mut resulttext = [0u8; 1];
+        let mut resulttext = [0_u8; 1];
         let mut cipher2 = CipherAesGcm::default();
         cipher2.set(&key);
         cipher2.decrypt(nonce, &authtext, &ciphertext, &mut resulttext).unwrap();
@@ -782,8 +775,8 @@ mod tests {
         assert!(cipher2.decrypt(nonce, &authtext, &ciphertext, &mut resulttext).is_err());
 
         // Test Case 14
-        let plaintext2 = [0u8; 16];
-        let mut ciphertext2 = [0u8; 32];
+        let plaintext2 = [0_u8; 16];
+        let mut ciphertext2 = [0_u8; 32];
         let mut cipher3 = CipherAesGcm::default();
         cipher3.set(&key);
         cipher3.encrypt(nonce, &authtext, &plaintext2, &mut ciphertext2);
@@ -792,7 +785,7 @@ mod tests {
                 == "cea7403d4d606b6e074ec5d3baf39d18d0d1c8a799996bf0265b98b5d48ab919"
         );
 
-        let mut resulttext2 = [1u8; 16];
+        let mut resulttext2 = [1_u8; 16];
         let mut cipher4 = CipherAesGcm::default();
         cipher4.set(&key);
         cipher4.decrypt(nonce, &authtext, &ciphertext2, &mut resulttext2).unwrap();
@@ -805,16 +798,16 @@ mod tests {
     #[cfg(feature = "use-chacha20poly1305")]
     fn test_chachapoly_empty() {
         //ChaChaPoly round-trip test, empty plaintext
-        let key = [0u8; 32];
-        let nonce = 0u64;
-        let plaintext = [0u8; 0];
-        let authtext = [0u8; 0];
-        let mut ciphertext = [0u8; 16];
+        let key = [0_u8; 32];
+        let nonce = 0_u64;
+        let plaintext = [0_u8; 0];
+        let authtext = [0_u8; 0];
+        let mut ciphertext = [0_u8; 16];
         let mut cipher1 = CipherChaChaPoly::default();
         cipher1.set(&key);
         cipher1.encrypt(nonce, &authtext, &plaintext, &mut ciphertext);
 
-        let mut resulttext = [0u8; 1];
+        let mut resulttext = [0_u8; 1];
         let mut cipher2 = CipherChaChaPoly::default();
         cipher2.set(&key);
         cipher2.decrypt(nonce, &authtext, &ciphertext, &mut resulttext).unwrap();
@@ -827,16 +820,16 @@ mod tests {
     #[cfg(feature = "use-chacha20poly1305")]
     fn test_chachapoly_nonempty() {
         //ChaChaPoly round-trip test, non-empty plaintext
-        let key = [0u8; 32];
-        let nonce = 0u64;
-        let plaintext = [0x34u8; 117];
-        let authtext = [0u8; 0];
-        let mut ciphertext = [0u8; 133];
+        let key = [0_u8; 32];
+        let nonce = 0_u64;
+        let plaintext = [0x34_u8; 117];
+        let authtext = [0_u8; 0];
+        let mut ciphertext = [0_u8; 133];
         let mut cipher1 = CipherChaChaPoly::default();
         cipher1.set(&key);
         cipher1.encrypt(nonce, &authtext, &plaintext, &mut ciphertext);
 
-        let mut resulttext = [0u8; 117];
+        let mut resulttext = [0_u8; 117];
         let mut cipher2 = CipherChaChaPoly::default();
         cipher2.set(&key);
         cipher2.decrypt(nonce, &authtext, &ciphertext, &mut resulttext).unwrap();
@@ -847,20 +840,20 @@ mod tests {
     #[cfg(feature = "use-xchacha20poly1305")]
     fn test_xchachapoly_nonempty() {
         //XChaChaPoly round-trip test, non-empty plaintext
-        let key = [0u8; 32];
-        let nonce = 0u64;
-        let plaintext = [0x34u8; 117];
-        let authtext = [0u8; 0];
-        let mut ciphertext = [0u8; 133];
+        let key = [0_u8; 32];
+        let nonce = 0_u64;
+        let plaintext = [0x34_u8; 117];
+        let authtext = [0_u8; 0];
+        let mut ciphertext = [0_u8; 133];
         let mut cipher1 = CipherXChaChaPoly::default();
         cipher1.set(&key);
         cipher1.encrypt(nonce, &authtext, &plaintext, &mut ciphertext);
 
-        let mut resulttext = [0u8; 117];
+        let mut resulttext = [0_u8; 117];
         let mut cipher2 = CipherXChaChaPoly::default();
         cipher2.set(&key);
         cipher2.decrypt(nonce, &authtext, &ciphertext, &mut resulttext).unwrap();
-        assert!(hex::encode(resulttext.to_vec()) == hex::encode(plaintext.to_vec()));
+        assert!(hex::encode(resulttext) == hex::encode(plaintext));
     }
 
     #[test]
@@ -895,8 +888,8 @@ mod tests {
         .unwrap();
         let tag = Vec::<u8>::from_hex("eead9d67890cbb22392336fea1851f38").unwrap();
         let authtext = Vec::<u8>::from_hex("f33388860000000000004e91").unwrap();
-        let mut combined_text = [0u8; 1024];
-        let mut out = [0u8; 1024];
+        let mut combined_text = [0_u8; 1024];
+        let mut out = [0_u8; 1024];
         copy_slices!(&ciphertext, &mut combined_text);
         copy_slices!(&tag[0..TAGLEN], &mut combined_text[ciphertext.len()..]);
 
@@ -933,7 +926,7 @@ mod tests {
     #[test]
     #[cfg(feature = "use-pqcrypto-kyber1024")]
     fn test_kyber1024() {
-        let mut rng = OsRng::default();
+        let mut rng = OsRng;
         let mut kem_1 = Kyber1024::default();
         let kem_2 = Kyber1024::default();
 
@@ -944,7 +937,7 @@ mod tests {
         kem_1.generate(&mut rng);
         let (ss1_len, ct_len) =
             kem_2.encapsulate(kem_1.pubkey(), &mut shared_secret_1, &mut ciphertext).unwrap();
-        let ss2_len = kem_1.decapsulate(&mut ciphertext, &mut shared_secret_2).unwrap();
+        let ss2_len = kem_1.decapsulate(&ciphertext, &mut shared_secret_2).unwrap();
 
         assert_eq!(shared_secret_1, shared_secret_2);
         assert_eq!(ss1_len, shared_secret_1.len());
@@ -956,7 +949,7 @@ mod tests {
     #[test]
     #[cfg(feature = "use-pqcrypto-kyber1024")]
     fn test_kyber1024_fail() {
-        let mut rng = OsRng::default();
+        let mut rng = OsRng;
         let mut kem_1 = Kyber1024::default();
         let kem_2 = Kyber1024::default();
 
@@ -968,7 +961,7 @@ mod tests {
         kem_1.generate(&mut rng);
         let (ss1_len, ct_len) =
             kem_2.encapsulate(kem_1.pubkey(), &mut shared_secret_1, &mut ciphertext).unwrap();
-        let ss2_len = kem_1.decapsulate(&mut bad_ciphertext, &mut shared_secret_2).unwrap();
+        let ss2_len = kem_1.decapsulate(&bad_ciphertext, &mut shared_secret_2).unwrap();
 
         assert_ne!(shared_secret_1, shared_secret_2);
         assert_eq!(ss1_len, shared_secret_1.len());

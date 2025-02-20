@@ -26,7 +26,7 @@ pub struct Keypair {
     /// The private asymmetric key
     pub private: Vec<u8>,
     /// The public asymmetric key
-    pub public:  Vec<u8>,
+    pub public: Vec<u8>,
 }
 
 impl PartialEq for Keypair {
@@ -58,16 +58,16 @@ impl PartialEq for Keypair {
 /// # }
 /// ```
 pub struct Builder<'builder> {
-    params:   NoiseParams,
+    params: NoiseParams,
     resolver: BoxedCryptoResolver,
-    s:        Option<&'builder [u8]>,
-    e_fixed:  Option<&'builder [u8]>,
-    rs:       Option<&'builder [u8]>,
-    psks:     [Option<&'builder [u8; 32]>; MAX_PSKS],
-    plog:     Option<&'builder [u8]>,
+    s: Option<&'builder [u8]>,
+    e_fixed: Option<&'builder [u8]>,
+    rs: Option<&'builder [u8]>,
+    psks: [Option<&'builder [u8; 32]>; MAX_PSKS],
+    plog: Option<&'builder [u8]>,
 }
 
-impl<'builder> Debug for Builder<'builder> {
+impl Debug for Builder<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Builder").field("params", &self.params.name).finish_non_exhaustive()
     }
@@ -75,10 +75,7 @@ impl<'builder> Debug for Builder<'builder> {
 
 impl<'builder> Builder<'builder> {
     /// Create a Builder with the default crypto resolver.
-    #[cfg(all(
-        feature = "default-resolver",
-        not(any(feature = "ring-accelerated", feature = "libsodium-accelerated"))
-    ))]
+    #[cfg(all(feature = "default-resolver", not(feature = "ring-accelerated")))]
     #[must_use]
     pub fn new(params: NoiseParams) -> Self {
         use crate::resolvers::DefaultResolver;
@@ -87,24 +84,13 @@ impl<'builder> Builder<'builder> {
     }
 
     /// Create a Builder with the ring resolver and default resolver as a fallback.
-    #[cfg(all(not(feature = "libsodium-accelerated"), feature = "ring-accelerated"))]
+    #[cfg(feature = "ring-accelerated")]
     pub fn new(params: NoiseParams) -> Self {
         use crate::resolvers::{DefaultResolver, FallbackResolver, RingResolver};
 
         Self::with_resolver(
             params,
             Box::new(FallbackResolver::new(Box::new(RingResolver), Box::new(DefaultResolver))),
-        )
-    }
-
-    /// Create a Builder with the ring resolver and default resolver as a fallback.
-    #[cfg(all(not(feature = "ring-accelerated"), feature = "libsodium-accelerated"))]
-    pub fn new(params: NoiseParams) -> Self {
-        use crate::resolvers::{DefaultResolver, FallbackResolver, SodiumResolver};
-
-        Self::with_resolver(
-            params,
-            Box::new(FallbackResolver::new(Box::new(SodiumResolver), Box::new(DefaultResolver))),
         )
     }
 
@@ -121,13 +107,13 @@ impl<'builder> Builder<'builder> {
     ///   allowed.
     /// * `InitError(InitStage::ParameterOverwrite)` if this method has been called previously.
     pub fn psk(mut self, location: u8, key: &'builder [u8; PSKLEN]) -> Result<Self, Error> {
-        let location = location as usize;
-        if location >= MAX_PSKS {
+        let index = usize::from(location);
+        if index >= MAX_PSKS {
             Err(InitStage::ValidatePskPosition.into())
-        } else if self.psks[location].is_some() {
+        } else if self.psks[index].is_some() {
             Err(InitStage::ParameterOverwrite.into())
         } else {
-            self.psks[location] = Some(key);
+            self.psks[index] = Some(key);
             Ok(self)
         }
     }
@@ -191,8 +177,8 @@ impl<'builder> Builder<'builder> {
     pub fn generate_keypair(&self) -> Result<Keypair, Error> {
         let mut rng = self.resolver.resolve_rng().ok_or(InitStage::GetRngImpl)?;
         let mut dh = self.resolver.resolve_dh(&self.params.dh).ok_or(InitStage::GetDhImpl)?;
-        let mut private = vec![0u8; dh.priv_len()];
-        let mut public = vec![0u8; dh.pub_len()];
+        let mut private = vec![0_u8; dh.priv_len()];
+        let mut public = vec![0_u8; dh.pub_len()];
         dh.generate(&mut *rng);
 
         private.copy_from_slice(dh.privkey());
@@ -254,7 +240,7 @@ impl<'builder> Builder<'builder> {
         }
         let e = Toggle::off(e_dh);
 
-        let mut rs_buf = [0u8; MAXDHLEN];
+        let mut rs_buf = [0_u8; MAXDHLEN];
         let rs = match self.rs {
             Some(v) => {
                 rs_buf[..v.len()].copy_from_slice(v);
@@ -263,7 +249,7 @@ impl<'builder> Builder<'builder> {
             None => Toggle::off(rs_buf),
         };
 
-        let re = Toggle::off([0u8; MAXDHLEN]);
+        let re = Toggle::off([0_u8; MAXDHLEN]);
 
         let mut psks = [None::<[u8; PSKLEN]>; 10];
         for (i, psk) in self.psks.iter().enumerate() {
@@ -271,7 +257,7 @@ impl<'builder> Builder<'builder> {
                 if key.len() != PSKLEN {
                     return Err(InitStage::ValidatePskLengths.into());
                 }
-                let mut k = [0u8; PSKLEN];
+                let mut k = [0_u8; PSKLEN];
                 k.copy_from_slice(key);
                 psks[i] = Some(k);
             }
@@ -298,12 +284,14 @@ impl<'builder> Builder<'builder> {
 
     #[cfg(not(feature = "hfs"))]
     #[allow(clippy::unnecessary_wraps)]
+    #[allow(clippy::needless_pass_by_value)]
     fn resolve_kem(_: Box<dyn CryptoResolver>, _: &mut HandshakeState) -> Result<(), Error> {
         // HFS is disabled, return nothing
         Ok(())
     }
 
     #[cfg(feature = "hfs")]
+    #[allow(clippy::needless_pass_by_value)]
     fn resolve_kem(
         resolver: Box<dyn CryptoResolver>,
         hs: &mut HandshakeState,
@@ -320,7 +308,6 @@ impl<'builder> Builder<'builder> {
     }
 }
 
-
 #[cfg(test)]
 #[cfg(all(
     feature = "std",
@@ -328,13 +315,13 @@ impl<'builder> Builder<'builder> {
 ))]
 mod tests {
     use super::*;
-    type TestResult = Result<(), Box<dyn std::error::Error>>;
+    type TestResult = Result<(), Box<dyn core::error::Error>>;
 
     #[test]
     fn test_builder() -> TestResult {
         let _noise = Builder::new("Noise_NN_25519_ChaChaPoly_SHA256".parse()?)
             .prologue(&[2, 2, 2, 2, 2, 2, 2, 2])?
-            .local_private_key(&[0u8; 32])?
+            .local_private_key(&[0_u8; 32])?
             .build_initiator()?;
         Ok(())
     }
@@ -350,7 +337,7 @@ mod tests {
 
     #[test]
     fn test_builder_bad_spec() {
-        let params: ::std::result::Result<NoiseParams, _> =
+        let params: ::core::result::Result<NoiseParams, _> =
             "Noise_NK_25519_ChaChaPoly_BLAH256".parse();
 
         assert!(params.is_err(), "NoiseParams should have failed");
@@ -360,7 +347,7 @@ mod tests {
     fn test_builder_missing_prereqs() -> TestResult {
         let noise = Builder::new("Noise_NK_25519_ChaChaPoly_SHA256".parse()?)
             .prologue(&[2, 2, 2, 2, 2, 2, 2, 2])?
-            .local_private_key(&[0u8; 32])?
+            .local_private_key(&[0_u8; 32])?
             .build_initiator(); // missing remote key, should result in Err
 
         assert!(noise.is_err(), "builder should have failed on build");
@@ -371,27 +358,27 @@ mod tests {
     fn test_builder_param_overwrite() -> TestResult {
         fn build_builder<'a>() -> Result<Builder<'a>, Error> {
             Builder::new("Noise_NNpsk0_25519_ChaChaPoly_SHA256".parse()?)
-                .prologue(&[2u8; 10])?
-                .psk(0, &[0u8; 32])?
-                .local_private_key(&[0u8; 32])?
-                .remote_public_key(&[1u8; 32])
+                .prologue(&[2_u8; 10])?
+                .psk(0, &[0_u8; 32])?
+                .local_private_key(&[0_u8; 32])?
+                .remote_public_key(&[1_u8; 32])
         }
 
         assert_eq!(
-            build_builder()?.prologue(&[1u8; 10]).unwrap_err(),
+            build_builder()?.prologue(&[1_u8; 10]).unwrap_err(),
             Error::Init(InitStage::ParameterOverwrite)
         );
-        assert!(build_builder()?.psk(1, &[1u8; 32]).is_ok());
+        assert!(build_builder()?.psk(1, &[1_u8; 32]).is_ok());
         assert_eq!(
-            build_builder()?.psk(0, &[1u8; 32]).unwrap_err(),
-            Error::Init(InitStage::ParameterOverwrite)
-        );
-        assert_eq!(
-            build_builder()?.local_private_key(&[1u8; 32]).unwrap_err(),
+            build_builder()?.psk(0, &[1_u8; 32]).unwrap_err(),
             Error::Init(InitStage::ParameterOverwrite)
         );
         assert_eq!(
-            build_builder()?.remote_public_key(&[1u8; 32]).unwrap_err(),
+            build_builder()?.local_private_key(&[1_u8; 32]).unwrap_err(),
+            Error::Init(InitStage::ParameterOverwrite)
+        );
+        assert_eq!(
+            build_builder()?.remote_public_key(&[1_u8; 32]).unwrap_err(),
             Error::Init(InitStage::ParameterOverwrite)
         );
         Ok(())
