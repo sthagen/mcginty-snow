@@ -5,7 +5,7 @@
 [![Build Status](https://github.com/mcginty/snow/workflows/Build/badge.svg)](https://github.com/mcginty/snow/actions)
 [![dependency status](https://deps.rs/repo/github/mcginty/snow/status.svg)](https://deps.rs/repo/github/mcginty/snow)
 
-![totally official snow logo](https://i.imgur.com/gFgvo49.jpg?1)
+![very official snow logo](./docs/snow.jpg)
 
 An implementation of Trevor Perrin's [Noise Protocol](https://noiseprotocol.org/) that
 is designed to be Hard To Fuck Up™.
@@ -35,13 +35,12 @@ let mut noise = noise.into_transport_mode()?;
 
 See the full documentation at [https://docs.rs/snow](https://docs.rs/snow).
 
-## Implemented
+## Specification
 
-Snow is currently tracking against [Noise spec revision 34](https://noiseprotocol.org/noise_rev34.html).
-
-However, a not all features have been implemented yet (pull requests welcome):
-
-- [ ] [The `fallback` modifier](https://noiseprotocol.org/noise_rev34.html#the-fallback-modifier)
+Snow is tracking against [Noise spec revision 34](https://noiseprotocol.org/noise_rev34.html),
+the latest Noise Protocol version. All features are implemented with the exception of
+[the `fallback` modifier](https://noiseprotocol.org/noise_rev34.html#the-fallback-modifier)
+(PRs welcome).
 
 ## Crypto
 
